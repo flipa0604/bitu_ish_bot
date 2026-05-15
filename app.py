@@ -68,7 +68,7 @@ async def database_connected():
             "Ish muddati", "Qo'shimcha ish", "Ish sabablari", "Sog'liq holati",
             "Kechikish sababi", "O'g'irlik sababi", "Ish sifati sababi",
             "Oldingi maosh", "O'qigan kurslari",
-            "Ovozli xabari (Linki)", "Video xabari (linki)", "Qabul qilindi", "TelegramID"
+            "Qabul qilindi", "TelegramID"
         ]
 
         try:

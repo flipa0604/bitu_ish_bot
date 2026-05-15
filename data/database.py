@@ -71,8 +71,6 @@ def save_to_google_sheets(user_data):
             user_data.get('question_what_workers_good_works_some_bad', ''),
             user_data.get('question_previous_salary', ''),
             user_data.get('courses_completed', ''),
-            user_data.get('about_yourself', ''),
-            user_data.get('personal_qualities', ''),
             False,  # Qabul qilindi
             user_data.get('telegram_id', '')
         ]
