@@ -1,5 +1,7 @@
+import logging
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart
+from data.config import ADMINS
 from data.database import get_user_found_by_telegram_id, save_to_google_sheets
 from keyboards.inline.start import (
     department_selection_keyboard,
@@ -23,6 +25,51 @@ from aiogram.fsm.context import FSMContext
 
 
 router = Router()
+logger = logging.getLogger(__name__)
+
+
+async def notify_admins(bot, user_data: dict, from_user):
+    """Yangi ariza haqida barcha adminlarga to'liq ma'lumot yuborish."""
+    username = f"@{from_user.username}" if from_user.username else "—"
+    text = (
+        f"🆕 <b>Yangi ariza topshirildi!</b>\n\n"
+        f"👤 <b>Ism:</b> {user_data.get('full_name', '—')}\n"
+        f"📞 <b>Telefon:</b> {user_data.get('phone_number', '—')}\n"
+        f"🏠 <b>Manzil:</b> {user_data.get('address', '—')}\n"
+        f"🎂 <b>Tug'ilgan sana:</b> {user_data.get('birth_date', '—')}\n"
+        f"🎓 <b>Ta'lim:</b> {user_data.get('education', '—')}\n"
+        f"💼 <b>Ish tajriba:</b> {user_data.get('work_experience', '—')}\n"
+        f"💍 <b>Oilaviy holat:</b> {user_data.get('marital_status', '—')}\n"
+        f"🎯 <b>Lavozim:</b> {user_data.get('position', '—')}\n"
+        f"🇬🇧 <b>Ingliz tili:</b> {user_data.get('english_level', '—')}\n"
+        f"🇷🇺 <b>Rus tili:</b> {user_data.get('russian_level', '—')}\n"
+        f"💰 <b>Kutilayotgan maosh:</b> {user_data.get('salary_expectation', '—')}\n"
+        f"📋 <b>Tavsiyachi:</b> {user_data.get('reference_check', '—')}\n"
+        f"⏰ <b>Ish muddati:</b> {user_data.get('work_duration', '—')}\n"
+        f"🕐 <b>Qo'shimcha ish:</b> {user_data.get('overtime_work', '—')}\n"
+        f"🎯 <b>Ish sababi:</b> {user_data.get('work_reasons', '—')}\n"
+        f"🏥 <b>Sog'liq:</b> {user_data.get('health_status', '—')}\n"
+        f"🐢 <b>Kechikish sababi:</b> {user_data.get('question_some_workers_late_to_work', '—')}\n"
+        f"🚨 <b>O'g'irlik sababi:</b> {user_data.get('question_what_workers_can_thief_answer', '—')}\n"
+        f"⚖️ <b>Ish sifati sababi:</b> {user_data.get('question_what_workers_good_works_some_bad', '—')}\n"
+        f"💸 <b>Oldingi maosh:</b> {user_data.get('question_previous_salary', '—')}\n"
+        f"📚 <b>Kurslar:</b> {user_data.get('courses_completed', '—')}\n\n"
+        f"👥 <b>Username:</b> {username}\n"
+        f"🆔 <b>Telegram ID:</b> <code>{user_data.get('telegram_id', '—')}</code>"
+    )
+
+    voice_url = user_data.get('about_yourself')
+    video_url = user_data.get('personal_qualities')
+
+    for admin_id in ADMINS:
+        try:
+            await bot.send_message(int(admin_id), text)
+            if voice_url:
+                await bot.send_message(int(admin_id), f"🎙 <b>Ovozli xabar (qarindoshlar):</b>\n{voice_url}")
+            if video_url:
+                await bot.send_message(int(admin_id), f"📹 <b>Video xabar (shaxsiy sifatlar):</b>\n{video_url}")
+        except Exception as e:
+            logger.error(f"Admin {admin_id} ga xabar yuborilmadi: {e}")
 
 @router.callback_query(F.data == "back_to_departments")
 async def back_to_departments(callback: types.CallbackQuery):
@@ -561,31 +608,21 @@ async def handle_previous_salary(message: types.Message, state: FSMContext):
     user_data['telegram_id'] = message.from_user.id
 
     # Google Sheets ga saqlash
-    if save_to_google_sheets(user_data):
-        # State ni tozalash
-        await state.clear()
-        
+    saved = save_to_google_sheets(user_data)
+
+    # Adminlarga to'liq ma'lumot yuborish (saqlash holatidan qat'iy nazar)
+    try:
+        await notify_admins(message.bot, user_data, message.from_user)
+    except Exception as e:
+        logger.error(f"Adminlarni xabardor qilishda xatolik: {e}")
+
+    await state.clear()
+
+    if saved:
         await message.answer("✅ Sizning ma'lumotlaringiz muvaffaqiyatli saqlandi!\n\nTez orada siz bilan bog'lanamiz.")
     else:
-        await message.answer("❌ Ma'lumotlarni saqlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
+        await message.answer("⚠️ Ariza qabul qilindi, lekin saqlashda xatolik bo'ldi. Adminlar bilan bog'laning.")
 
-
-    # # Barcha ma'lumotlarni olish
-    # user_data = await state.get_data()
-    
-    # # Telegram ID ni qo'shish
-    # user_data['telegram_id'] = message.from_user.id
-
-    # # Google Sheets ga saqlash
-    # if save_to_google_sheets(user_data):
-    #     # State ni tozalash
-    #     await state.clear()
-        
-    #     await message.answer("✅ Sizning ma'lumotlaringiz muvaffaqiyatli saqlandi!\n\nTez orada siz bilan bog'lanamiz.")
-    # else:
-    #     await message.answer("❌ Ma'lumotlarni saqlashda xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
-    
-  
 
 
 
