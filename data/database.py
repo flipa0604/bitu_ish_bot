@@ -1,77 +1,52 @@
 import gspread
 import logging
-import datetime
-from data.config import SERVICE_ACCOUNT
+from data.config import SHEET_ID, SHEET_TAB_NAME, SERVICE_ACCOUNT_FILE
 from gspread import service_account
 from gspread.exceptions import APIError, SpreadsheetNotFound
 from google.oauth2.service_account import Credentials
-from typing import Optional, Union
-
+from typing import Optional
 
 
 logger = logging.getLogger(__name__)
+
+SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+
+
 def get_worksheet(sheet_name: str):
-    """
-    Get a worksheet by its name from the Google Sheets document.
-    
-    :param sheet_name: The name of the worksheet to retrieve.
-    :return: The Worksheet object if found, otherwise None.
-    """
     try:
-        gc = service_account(filename="service_account.json", scopes=["https://www.googleapis.com/auth/spreadsheets"])
-        spreadsheet = gc.open_by_key("1d0uXjXTIHKyUaIIPm_fUomzUS3elK4TfTvcLpWIBzh8")
+        gc = service_account(filename=SERVICE_ACCOUNT_FILE, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+        spreadsheet = gc.open_by_key(SHEET_ID)
         return spreadsheet.worksheet(sheet_name)
     except (APIError, SpreadsheetNotFound):
         return None
 
+
 def get_user_found_by_telegram_id(telegram_id: int) -> bool:
-    """
-    Check if user exists by their Telegram ID.
-    
-    :param telegram_id: The Telegram ID of the user.
-    :return: True if user found, False otherwise.
-    """
-    worksheet = get_worksheet('Topshirganlar')
+    worksheet = get_worksheet(SHEET_TAB_NAME)
     if not worksheet:
         return False
-    
     try:
         cell = worksheet.find(str(telegram_id))
         return bool(cell)
     except APIError:
         return False
 
-SCOPE = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-SERVICE_ACCOUNT_FILE = 'service_account.json'  # O'z fayl yo'lingizni qo'ying
-SPREADSHEET_ID = '1d0uXjXTIHKyUaIIPm_fUomzUS3elK4TfTvcLpWIBzh8'  # Google Sheets ID sini qo'ying
-
 
 def get_google_sheets_client():
-    """Google Sheets clientini olish"""
     try:
         creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPE)
-        client = gspread.authorize(creds)
-        return client
+        return gspread.authorize(creds)
     except Exception as e:
-        print(f"Google Sheets clientini olishda xatolik: {e}")
+        logger.error(f"Google Sheets clientini olishda xatolik: {e}")
         return None
 
+
 def save_to_google_sheets(user_data):
-    """gspread kutubxonasi yordamida saqlash"""
     try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-        
         SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-        SHEET_ID = '1d0uXjXTIHKyUaIIPm_fUomzUS3elK4TfTvcLpWIBzh8'
-        
-        credentials = Credentials.from_service_account_file(
-            'service_account.json',
-            scopes=SCOPES
-        )
-        
+        credentials = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
         client = gspread.authorize(credentials)
-        sheet = client.open_by_key(SHEET_ID).worksheet('Topshirganlar')
+        sheet = client.open_by_key(SHEET_ID).worksheet(SHEET_TAB_NAME)
         
         # Ma'lumotlarni tayyorlash
         row_data = [
@@ -117,15 +92,14 @@ def get_user_data_by_telegram_id(telegram_id: int) -> Optional[dict]:
     :param telegram_id: The Telegram ID of the user.
     :return: A dictionary with user data if found, otherwise None.
     """
-    worksheet = get_worksheet('Topshirganlar')
+    worksheet = get_worksheet(SHEET_TAB_NAME)
     if not worksheet:
         return None
-    
+
     try:
         cell = worksheet.find(str(telegram_id))
         row = worksheet.row_values(cell.row)
         headers = worksheet.row_values(1)
-        user_data = dict(zip(headers, row))
-        return user_data
+        return dict(zip(headers, row))
     except APIError:
         return None

@@ -5,7 +5,7 @@ from googleapiclient.discovery import build
 from aiogram.client.session.middlewares.request_logging import logger
 from aiogram.enums import ChatType
 from loader import db
-from data.config import SERVICE_ACCOUNT
+from data.config import SHEET_ID, SHEET_TAB_NAME, SERVICE_ACCOUNT_FILE
 
 
 def setup_handlers(dispatcher: Dispatcher) -> None:
@@ -43,11 +43,10 @@ async def setup_aiogram(dispatcher: Dispatcher, bot: Bot) -> None:
 async def database_connected():
     """Google Sheets bilan ulanish va sheet yaratish"""
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-    SHEET_ID = '1d0uXjXTIHKyUaIIPm_fUomzUS3elK4TfTvcLpWIBzh8'
-    
+
     try:
         credentials = service_account.Credentials.from_service_account_file(
-            'service_account.json',
+            SERVICE_ACCOUNT_FILE,
             scopes=SCOPES
         )
         
@@ -78,9 +77,9 @@ async def database_connected():
             sheet_exists = False
             
             for sheet in spreadsheet.get('sheets', []):
-                if sheet['properties']['title'] == 'Topshirganlar':
+                if sheet['properties']['title'] == SHEET_TAB_NAME:
                     sheet_exists = True
-                    logger.info("Sheet 'Topshirganlar' already exists")
+                    logger.info(f"Sheet '{SHEET_TAB_NAME}' already exists")
                     break
             
             if not sheet_exists:
@@ -89,7 +88,7 @@ async def database_connected():
                     'requests': [{
                         'addSheet': {
                             'properties': {
-                                'title': 'Topshirganlar',
+                                'title': SHEET_TAB_NAME,
                                 'gridProperties': {
                                     'rowCount': 1000,
                                     'columnCount': len(headers),
@@ -105,7 +104,7 @@ async def database_connected():
                 # Headers qo'shish - to'g'ri format
                 sheets.values().update(
                     spreadsheetId=SHEET_ID,
-                    range='Topshirganlar!A1',
+                    range=f'{SHEET_TAB_NAME}!A1',
                     valueInputOption='RAW',
                     body={'values': [headers]}  # Bu yerda [headers] bo'lishi kerak
                 ).execute()
@@ -186,7 +185,7 @@ async def database_connected():
                 ]
                 
                 sheets.batchUpdate(spreadsheetId=SHEET_ID, body={'requests': requests}).execute()
-                logger.info("Sheet 'Topshirganlar' created and formatted successfully")
+                logger.info(f"Sheet '{SHEET_TAB_NAME}' created and formatted successfully")
 
         except Exception as e:
             logger.error(f"Error creating sheet: {str(e)}")

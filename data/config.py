@@ -11,15 +11,9 @@ ADMINS = env.list("ADMINS")  # adminlar ro'yxati
 
 BACKEND_HOST = env.str("BACKEND_HOST", "http://localhost:8000")
 
-SERVICE_ACCOUNT = {
-    "type": env.str("TYPE"),
-    "project_id": env.str("PROJECT_ID"),
-    "private_key_id": env.str("PRIVATE_KEY_ID"),
-    "private_key": env.str("PRIVATE_KEY"),
-    "client_email": env.str("CLIENT_EMAIL"),
-    "client_id": env.str("CLIENT_ID"),
-    "auth_uri": env.str("AUTH_URI"),
-    "token_uri": env.str("TOKEN_URI"),
-    "auth_provider_x509_cert_url": env.str("AUTH_PROVIDER_X509_CERT_URL"),
-    "client_x509_cert_url": env.str("CLIENT_X509_CERT_URL")
-}
+# Google Sheets ID (URL'dagi /d/ va /edit orasidagi qism)
+SHEET_ID = env.str("SHEET_ID")
+SHEET_TAB_NAME = env.str("SHEET_TAB_NAME", "Topshirganlar")
+SERVICE_ACCOUNT_FILE = env.str("SERVICE_ACCOUNT_FILE", "service_account.json")
+
+# SERVICE_ACCOUNT — endi kodda ishlatilmaydi. service_account.json fayli to'g'ridan-to'g'ri o'qiladi.
