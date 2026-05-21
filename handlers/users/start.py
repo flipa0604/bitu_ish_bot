@@ -188,7 +188,7 @@ async def handle_position_selection(callback: types.CallbackQuery, state: FSMCon
 
 @router.message(UserRegistration.full_name)
 async def handle_full_name(message: types.Message, state: FSMContext):
-    full_name = message.text.strip()
+    full_name = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if not full_name:
         await message.reply("Iltimos, to'liq ismingizni kiriting.")
@@ -215,7 +215,7 @@ async def handle_phone_number(message: types.Message, state: FSMContext):
     if message.contact:
         phone_number = message.contact.phone_number
     else:
-        phone_number = message.text.strip()
+        phone_number = (message.text or "").strip()
     
     if not phone_number:
         await message.reply("Iltimos, telefon raqamingizni kiriting.")
@@ -232,7 +232,7 @@ async def handle_phone_number(message: types.Message, state: FSMContext):
 
 @router.message(UserRegistration.address)
 async def handle_address(message: types.Message, state: FSMContext):
-    address = message.text.strip()
+    address = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     
     if not address:
@@ -248,7 +248,7 @@ async def handle_address(message: types.Message, state: FSMContext):
 
 @router.message(UserRegistration.birth_date)
 async def handle_birth_date(message: types.Message, state: FSMContext):
-    birth_date = message.text.strip()
+    birth_date = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     
     if not birth_date:
@@ -292,7 +292,7 @@ async def handle_education_selection(callback: types.CallbackQuery, state: FSMCo
 
 @router.message(UserRegistration.work_experience)
 async def handle_work_experience(message: types.Message, state: FSMContext):
-    work_experience = message.text.strip()
+    work_experience = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
 
     if not work_experience:
@@ -374,7 +374,7 @@ async def handle_russian_level_selection(callback: types.CallbackQuery, state: F
 
 @router.message(UserRegistration.salary_expectation)
 async def handle_salary_expectation(message: types.Message, state: FSMContext):
-    salary_expectation = message.text.strip()
+    salary_expectation = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if not salary_expectation:
         await message.reply("Iltimos, ish haqidagi kutganingizni kiriting.")
@@ -393,7 +393,7 @@ async def handle_salary_expectation(message: types.Message, state: FSMContext):
 
 @router.message(UserRegistration.reference_check)
 async def handle_reference_check(message: types.Message, state: FSMContext):
-    reference_check = message.text.strip()
+    reference_check = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if not reference_check:
         await message.reply("Iltimos, tavsiyalarni kiriting.")
@@ -434,7 +434,7 @@ async def handle_work_duration_selection(callback: types.CallbackQuery, state: F
 
 @router.message(UserRegistration.overtime_work)
 async def handle_overtime_work(message: types.Message, state: FSMContext):
-    overtime_work = message.text.strip().lower()
+    overtime_work = (message.text or "").strip().lower()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if overtime_work not in ["ha", "yo'q"]:
         await message.reply("Iltimos, 'Ha' yoki 'Yo'q' deb javob bering.")
@@ -451,7 +451,7 @@ async def handle_overtime_work(message: types.Message, state: FSMContext):
 
 @router.message(UserRegistration.work_reasons)
 async def handle_work_reasons(message: types.Message, state: FSMContext):
-    work_reasons = message.text.strip()
+    work_reasons = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if not work_reasons:
         await message.reply("Iltimos, ish joyini tanlash sababini kiriting.")
@@ -491,7 +491,7 @@ async def handle_personal_qualities(message: types.Message, state: FSMContext):
         )
 @router.message(UserRegistration.courses_completed)
 async def handle_courses_completed(message: types.Message, state: FSMContext):
-    courses_completed = message.text.strip()
+    courses_completed = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if not courses_completed:
         await message.reply("Iltimos, kurslar haqida ma'lumot kiriting.")
@@ -508,7 +508,7 @@ async def handle_courses_completed(message: types.Message, state: FSMContext):
 
 @router.message(UserRegistration.health_status)
 async def handle_health_status(message: types.Message, state: FSMContext):
-    health_status = message.text.strip().lower()
+    health_status = (message.text or "").strip().lower()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if health_status not in ["ha", "yo'q"]:
         await message.reply("Iltimos, 'Ha' yoki 'Yo'q' deb javob bering.")
@@ -525,7 +525,7 @@ async def handle_health_status(message: types.Message, state: FSMContext):
 
 @router.message(UserRegistration.question_what_workers_can_thief_answer)
 async def handle_thief_answer(message: types.Message, state: FSMContext):
-    thief_answer = message.text.strip()
+    thief_answer = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if not thief_answer:
         await message.reply("Iltimos, savolga javob bering.")
@@ -542,7 +542,7 @@ async def handle_thief_answer(message: types.Message, state: FSMContext):
 
 @router.message(UserRegistration.question_what_workers_good_works_some_bad)
 async def handle_good_bad_answer(message: types.Message, state: FSMContext):
-    good_bad_answer = message.text.strip()
+    good_bad_answer = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if not good_bad_answer:
         await message.reply("Iltimos, savolga javob bering.")
@@ -580,7 +580,7 @@ async def handle_about_yourself(message: types.Message, state: FSMContext):
 
 @router.message(UserRegistration.question_some_workers_late_to_work)
 async def handle_some_workers_late_to_work(message: types.Message, state: FSMContext):
-    some_workers_late_to_work = message.text.strip()
+    some_workers_late_to_work = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if not some_workers_late_to_work:
         await message.reply("Iltimos, savolga javob bering.")
@@ -595,7 +595,7 @@ async def handle_some_workers_late_to_work(message: types.Message, state: FSMCon
 
 @router.message(UserRegistration.question_previous_salary)
 async def handle_previous_salary(message: types.Message, state: FSMContext):
-    previous_salary = message.text.strip()
+    previous_salary = (message.text or "").strip()
     await message.bot.send_chat_action(message.chat.id, "typing")
     if not previous_salary:
         await message.reply("Iltimos, oldingi ish joyingizdagi oylik maoshingizni kiriting.")
