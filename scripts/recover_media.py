@@ -1,0 +1,193 @@
+"""Eski arizalarning ovozli xabari va videosini tiklab, Google Sheets'ga yozadi.
+
+Eski kod ovoz/videoni saqlamagan (faqat vaqtinchalik havola yasab, adminga
+matn qilib yuborgan). Lekin fayllarning o'zi Telegram serverida — nomzod bilan
+bot orasidagi chatda turibdi.
+
+Bot API chat tarixini o'qiy olmaydi, shuning uchun bu skript har bir nomzod
+chatidagi xabarlarni ID bo'yicha `forwardMessage` qilib ko'radi: forward
+qilingan xabardan `file_id` olinadi va nusxa darhol o'chiriladi. Nomzodlarga
+hech qanday bildirishnoma bormaydi.
+
+Ishlatish:
+    venv/bin/python scripts/recover_media.py --target <ADMIN_CHAT_ID>
+    venv/bin/python scripts/recover_media.py --target <ADMIN_CHAT_ID> --limit 2 --dry-run
+"""
+
+import argparse
+import asyncio
+import logging
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from aiogram import Bot
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramForbiddenError,
+    TelegramRetryAfter,
+)
+from gspread.utils import rowcol_to_a1
+
+from data.config import BOT_TOKEN, SHEET_TAB_NAME
+from data.database import VOICE_HEADER, VIDEO_HEADER, get_all_applications, get_worksheet
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
+logger = logging.getLogger("recover")
+
+MAX_MESSAGE_ID = 200          # bitta chatda tekshiriladigan eng katta xabar ID si
+MAX_MISSES_IN_A_ROW = 15      # ketma-ket shuncha xabar topilmasa, chat tugagan deb hisoblanadi
+REQUEST_DELAY = 0.08          # so'rovlar orasidagi tanaffus (~12 so'rov/sekund)
+FLUSH_EVERY = 5               # nechta arizadan keyin Sheets'ga yozib qo'yish
+
+
+async def _sleep():
+    await asyncio.sleep(REQUEST_DELAY)
+
+
+async def scan_chat(bot: Bot, target_chat_id: int, user_id: int):
+    """Nomzod chatidan oxirgi ovozli xabar va videoning file_id sini topadi."""
+    voice_file_id = None
+    video_file_id = None
+    hits = 0
+    misses_in_a_row = 0
+
+    for message_id in range(1, MAX_MESSAGE_ID + 1):
+        try:
+            message = await bot.forward_message(
+                chat_id=target_chat_id,
+                from_chat_id=user_id,
+                message_id=message_id,
+                disable_notification=True,
+            )
+        except TelegramRetryAfter as error:
+            await asyncio.sleep(error.retry_after + 1)
+            continue
+        except TelegramForbiddenError:
+            return voice_file_id, video_file_id, "bot bloklangan"
+        except TelegramBadRequest as error:
+            text = str(error).lower()
+            if "chat not found" in text:
+                return voice_file_id, video_file_id, "chat topilmadi"
+            misses_in_a_row += 1
+            if hits and misses_in_a_row >= MAX_MISSES_IN_A_ROW:
+                break
+            if not hits and misses_in_a_row >= MAX_MISSES_IN_A_ROW:
+                return voice_file_id, video_file_id, "xabarlar topilmadi"
+            await _sleep()
+            continue
+        except Exception as error:  # kutilmagan xato — shu nomzodni tashlab ketamiz
+            return voice_file_id, video_file_id, f"xato: {error}"
+
+        hits += 1
+        misses_in_a_row = 0
+
+        # Eng oxirgi yuborilgani to'g'ri javob hisoblanadi (nomzod qayta yuborgan bo'lishi mumkin)
+        if message.voice:
+            voice_file_id = message.voice.file_id
+        elif message.video_note:
+            video_file_id = message.video_note.file_id
+        elif message.video:
+            video_file_id = message.video.file_id
+
+        try:
+            await bot.delete_message(chat_id=target_chat_id, message_id=message.message_id)
+        except Exception:
+            pass
+        await _sleep()
+
+    return voice_file_id, video_file_id, "ok"
+
+
+def flush_to_sheet(worksheet, voice_col: int, video_col: int, updates: list, dry_run: bool):
+    """Yig'ilgan file_id larni bitta so'rovda Sheets'ga yozadi."""
+    if not updates or dry_run:
+        updates.clear()
+        return
+
+    payload = []
+    for row, voice_file_id, video_file_id in updates:
+        if voice_file_id:
+            payload.append({"range": rowcol_to_a1(row, voice_col), "values": [[voice_file_id]]})
+        if video_file_id:
+            payload.append({"range": rowcol_to_a1(row, video_col), "values": [[video_file_id]]})
+    if payload:
+        worksheet.batch_update(payload)
+    updates.clear()
+
+
+async def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--target", type=int, required=True, help="forward qilinadigan admin chat ID si")
+    parser.add_argument("--limit", type=int, default=0, help="nechta arizani tekshirish (0 = hammasi)")
+    parser.add_argument("--dry-run", action="store_true", help="Sheets'ga yozmasdan sinab ko'rish")
+    parser.add_argument("--newest-first", action="store_true", help="oxirgi arizalardan boshlash")
+    args = parser.parse_args()
+
+    worksheet = get_worksheet(SHEET_TAB_NAME)
+    if not worksheet:
+        logger.error("Sheet topilmadi")
+        return
+
+    headers = worksheet.row_values(1)
+    voice_col = headers.index(VOICE_HEADER) + 1
+    video_col = headers.index(VIDEO_HEADER) + 1
+
+    applications = get_all_applications()
+    if args.newest_first:
+        applications = list(reversed(applications))
+
+    todo = [
+        app for app in applications
+        if str(app.get("TelegramID", "")).strip().isdigit()
+        and not ((app.get(VOICE_HEADER) or "").strip() and (app.get(VIDEO_HEADER) or "").strip())
+    ]
+    if args.limit:
+        todo = todo[:args.limit]
+
+    logger.info(f"Tekshiriladi: {len(todo)} ta ariza (jami {len(applications)})")
+
+    bot = Bot(token=BOT_TOKEN)
+    updates = []
+    stats = {"voice": 0, "video": 0, "both": 0, "none": 0}
+
+    try:
+        for number, app in enumerate(todo, start=1):
+            user_id = int(str(app["TelegramID"]).strip())
+            name = (app.get("Ism Familya") or "?")[:25]
+
+            voice_file_id, video_file_id, status = await scan_chat(bot, args.target, user_id)
+
+            if voice_file_id:
+                stats["voice"] += 1
+            if video_file_id:
+                stats["video"] += 1
+            if voice_file_id and video_file_id:
+                stats["both"] += 1
+            if not voice_file_id and not video_file_id:
+                stats["none"] += 1
+
+            logger.info(
+                f"{number}/{len(todo)} {name:<25} ovoz:{'✔' if voice_file_id else '—'} "
+                f"video:{'✔' if video_file_id else '—'} ({status})"
+            )
+
+            if voice_file_id or video_file_id:
+                updates.append((app["_row"], voice_file_id, video_file_id))
+            if len(updates) >= FLUSH_EVERY:
+                flush_to_sheet(worksheet, voice_col, video_col, updates, args.dry_run)
+
+        flush_to_sheet(worksheet, voice_col, video_col, updates, args.dry_run)
+    finally:
+        await bot.session.close()
+
+    logger.info(
+        f"\nNatija: ovoz {stats['voice']} ta, video {stats['video']} ta, "
+        f"ikkalasi {stats['both']} ta, hech nima topilmadi {stats['none']} ta"
+        + (" (dry-run: Sheets'ga yozilmadi)" if args.dry_run else "")
+    )
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
