@@ -176,7 +176,15 @@ async def scan_back(bot: Bot, target_chat_id: int, source_chat_id: int, window: 
         except TelegramRetryAfter as error:
             await asyncio.sleep(error.retry_after + 1)
             continue
-        except Exception:
+        except Exception as error:
+            text = str(error)
+            if "VOICE_MESSAGES_FORBIDDEN" in text:
+                # Xabar bor, lekin nishon chat ovozli xabarlarni qabul qilmaydi
+                logger.info(f"  OVOZ bor, lekin bloklangan: anchor-{step} (id={message_id})")
+                if voice_at is None:
+                    voice_at = step
+            elif "message to forward not found" not in text.lower():
+                logger.info(f"  [xato] anchor-{step}: {text[:90]}")
             await _sleep()
             continue
 
