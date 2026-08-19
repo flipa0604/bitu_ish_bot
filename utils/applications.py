@@ -12,6 +12,7 @@ from data.database import VOICE_HEADER, VIDEO_HEADER
 logger = logging.getLogger(__name__)
 
 MAX_MESSAGE_LENGTH = 3900
+MEDIA_DELAY = 0.3  # ovoz va video orasidagi tanaffus (flood-limitga tushmaslik uchun)
 
 # Sheet ustuni -> ko'rsatiladigan sarlavha
 FIELD_LABELS = [
@@ -137,6 +138,7 @@ async def send_application_media(
         await _call(bot.send_message, chat_id, "🎙 Ovozli xabar saqlanmagan (eski ariza).")
 
     if video_file_id:
+        await asyncio.sleep(MEDIA_DELAY)
         try:
             await send_video_file(bot, chat_id, video_file_id)
         except Exception as error:
@@ -148,10 +150,24 @@ async def send_application_media(
 
 async def send_full_application(bot: Bot, chat_id: int, app: dict, title: str = "📄 <b>Ariza</b>"):
     """Bitta arizani to'liq yuboradi: ma'lumotlari + ovozli xabari + videosi."""
-    await send_long_message(bot, chat_id, format_application_text(app, title=title))
+    voice_file_id = (app.get(VOICE_HEADER) or '').strip()
+    video_file_id = (app.get(VIDEO_HEADER) or '').strip()
+
+    text = format_application_text(app, title=title)
+    # Eski arizalarda ovoz/video saqlanmagan — alohida xabar o'rniga shu matnga qo'shamiz
+    missing = []
+    if not voice_file_id:
+        missing.append("🎙 Ovozli xabar saqlanmagan (eski ariza)")
+    if not video_file_id:
+        missing.append("📹 Video xabar saqlanmagan (eski ariza)")
+    if missing:
+        text += "\n\n" + "\n".join(f"<i>{note}</i>" for note in missing)
+
+    await send_long_message(bot, chat_id, text)
     await send_application_media(
         bot,
         chat_id,
-        voice_file_id=(app.get(VOICE_HEADER) or '').strip() or None,
-        video_file_id=(app.get(VIDEO_HEADER) or '').strip() or None,
+        voice_file_id=voice_file_id or None,
+        video_file_id=video_file_id or None,
+        note_if_missing=False,
     )

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 PAGE_SIZE = 8
 CACHE_TTL = 60  # soniya
-DELAY_BETWEEN_APPLICATIONS = 0.4
+DELAY_BETWEEN_APPLICATIONS = 0.7
 
 _cache = {"ts": 0.0, "items": []}
 _bulk_sending = set()
@@ -169,7 +169,8 @@ async def confirm_send_all(call: types.CallbackQuery):
         await call.message.answer("📭 Hozircha birorta ariza topilmadi.")
         return
 
-    minutes = max(1, round(len(items) * 3 * DELAY_BETWEEN_APPLICATIONS / 60))
+    # har bir ariza: matn + ovoz + video (~2 soniya)
+    minutes = max(1, round(len(items) * 2 / 60))
     text = (
         f"📤 <b>{len(items)} ta ariza</b> to'liq ma'lumoti, ovozli xabari va videosi bilan yuboriladi.\n\n"
         f"⏳ Taxminan {minutes} daqiqa vaqt oladi. Davom etamizmi?"
