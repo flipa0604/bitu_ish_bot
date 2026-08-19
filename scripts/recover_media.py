@@ -1,17 +1,24 @@
 """Eski arizalarning ovozli xabari va videosini tiklab, Google Sheets'ga yozadi.
 
-Eski kod ovoz/videoni saqlamagan (faqat vaqtinchalik havola yasab, adminga
-matn qilib yuborgan). Lekin fayllarning o'zi Telegram serverida — nomzod bilan
-bot orasidagi chatda turibdi.
+Eski kod ovoz/videoni saqlamagan (faqat vaqtinchalik havola yasab, adminga matn
+qilib yuborgan). Lekin fayllarning o'zi Telegram serverida — nomzod bilan bot
+orasidagi chatda turibdi.
 
-Bot API chat tarixini o'qiy olmaydi, shuning uchun bu skript har bir nomzod
-chatidagi xabarlarni ID bo'yicha `forwardMessage` qilib ko'radi: forward
-qilingan xabardan `file_id` olinadi va nusxa darhol o'chiriladi. Nomzodlarga
-hech qanday bildirishnoma bormaydi.
+Bot API chat tarixini o'qiy olmaydi. Shuning uchun:
+  1) nomzod chatiga ovozsiz "." xabar yuboriladi va darhol o'chiriladi — bu
+     chatdagi joriy message_id ni bilish uchun kerak (Telegram'da shaxsiy chat
+     ID lari 1 dan emas, akkaunt hisoblagichidan boradi);
+  2) o'sha ID dan orqaga qarab xabarlar `forwardMessage` bilan tekshiriladi —
+     forward qilingan xabardan `file_id` olinadi, nusxa darhol o'chiriladi;
+  3) topilgan file_id lar Sheets'ga yoziladi.
+
+Nomzodlarga bildirishnoma bormaydi (forward manba chatda ko'rinmaydi, "." esa
+ovozsiz yuborilib darhol o'chiriladi).
 
 Ishlatish:
     venv/bin/python scripts/recover_media.py --target <ADMIN_CHAT_ID>
-    venv/bin/python scripts/recover_media.py --target <ADMIN_CHAT_ID> --limit 2 --dry-run
+    venv/bin/python scripts/recover_media.py --target <ID> --limit 3 --dry-run
+    venv/bin/python scripts/recover_media.py --target <ID> --probe <CHAT_ID>
 """
 
 import argparse
@@ -23,85 +30,108 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aiogram import Bot
-from aiogram.exceptions import (
-    TelegramBadRequest,
-    TelegramForbiddenError,
-    TelegramRetryAfter,
-)
+from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from gspread.utils import rowcol_to_a1
 
 from data.config import BOT_TOKEN, SHEET_TAB_NAME
 from data.database import VOICE_HEADER, VIDEO_HEADER, get_all_applications, get_worksheet
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("recover")
 
-MAX_MESSAGE_ID = 200          # bitta chatda tekshiriladigan eng katta xabar ID si
-MAX_MISSES_IN_A_ROW = 15      # ketma-ket shuncha xabar topilmasa, chat tugagan deb hisoblanadi
-REQUEST_DELAY = 0.08          # so'rovlar orasidagi tanaffus (~12 so'rov/sekund)
-FLUSH_EVERY = 5               # nechta arizadan keyin Sheets'ga yozib qo'yish
+DEFAULT_WINDOW = 2000    # bitta chatda orqaga tekshiriladigan ID lar soni
+DEFAULT_MISS_LIMIT = 400  # oxirgi topilgan xabardan keyin shuncha bo'sh ID bo'lsa, to'xtaymiz
+DEFAULT_DELAY = 0.05      # so'rovlar orasidagi tanaffus (~20 so'rov/sekund)
+FLUSH_EVERY = 5           # nechta arizadan keyin Sheets'ga yozib qo'yish
 
 
-async def _sleep():
-    await asyncio.sleep(REQUEST_DELAY)
+class Scanner:
+    def __init__(self, bot: Bot, target_chat_id: int, window: int, miss_limit: int, delay: float):
+        self.bot = bot
+        self.target = target_chat_id
+        self.window = window
+        self.miss_limit = miss_limit
+        self.delay = delay
 
+    async def _pause(self):
+        await asyncio.sleep(self.delay)
 
-async def scan_chat(bot: Bot, target_chat_id: int, user_id: int, debug: bool = False):
-    """Nomzod chatidan oxirgi ovozli xabar va videoning file_id sini topadi."""
-    voice_file_id = None
-    video_file_id = None
-    hits = 0
-    misses_in_a_row = 0
-    seen_errors = set()
-
-    for message_id in range(1, MAX_MESSAGE_ID + 1):
+    async def _anchor(self, user_id: int):
+        """Chatdagi joriy message_id ni aniqlaydi (ovozsiz xabar yuborib, o'chiradi)."""
+        marker = await self.bot.send_message(user_id, ".", disable_notification=True)
         try:
-            message = await bot.forward_message(
-                chat_id=target_chat_id,
-                from_chat_id=user_id,
-                message_id=message_id,
-                disable_notification=True,
-            )
-        except TelegramRetryAfter as error:
-            await asyncio.sleep(error.retry_after + 1)
-            continue
-        except TelegramForbiddenError:
-            return voice_file_id, video_file_id, "bot bloklangan"
-        except TelegramBadRequest as error:
-            text = str(error).lower()
-            if debug and text not in seen_errors:
-                seen_errors.add(text)
-                logger.info(f"      [debug] id={message_id}: {str(error)[:110]}")
-            if "chat not found" in text:
-                return voice_file_id, video_file_id, "chat topilmadi"
-            misses_in_a_row += 1
-            if hits and misses_in_a_row >= MAX_MISSES_IN_A_ROW:
-                break
-            if not hits and misses_in_a_row >= MAX_MISSES_IN_A_ROW:
-                return voice_file_id, video_file_id, "xabarlar topilmadi"
-            await _sleep()
-            continue
-        except Exception as error:  # kutilmagan xato — shu nomzodni tashlab ketamiz
-            return voice_file_id, video_file_id, f"xato: {error}"
-
-        hits += 1
-        misses_in_a_row = 0
-
-        # Eng oxirgi yuborilgani to'g'ri javob hisoblanadi (nomzod qayta yuborgan bo'lishi mumkin)
-        if message.voice:
-            voice_file_id = message.voice.file_id
-        elif message.video_note:
-            video_file_id = message.video_note.file_id
-        elif message.video:
-            video_file_id = message.video.file_id
-
-        try:
-            await bot.delete_message(chat_id=target_chat_id, message_id=message.message_id)
+            await self.bot.delete_message(user_id, marker.message_id)
         except Exception:
             pass
-        await _sleep()
+        return marker.message_id
 
-    return voice_file_id, video_file_id, "ok"
+    async def scan(self, user_id: int):
+        """Chatdan oxirgi ovozli xabar va videoning file_id sini qaytaradi."""
+        try:
+            anchor = await self._anchor(user_id)
+        except TelegramForbiddenError:
+            return None, None, "bot bloklangan"
+        except Exception as error:
+            return None, None, f"chat ochilmadi ({str(error)[:40]})"
+
+        voice_file_id = None
+        video_file_id = None
+        voice_blocked = False
+        hits = 0
+        misses = 0
+
+        for step in range(1, self.window + 1):
+            message_id = anchor - step
+            if message_id <= 0:
+                break
+
+            try:
+                message = await self.bot.forward_message(
+                    chat_id=self.target,
+                    from_chat_id=user_id,
+                    message_id=message_id,
+                    disable_notification=True,
+                )
+            except TelegramRetryAfter as error:
+                await asyncio.sleep(error.retry_after + 1)
+                continue
+            except TelegramForbiddenError:
+                return voice_file_id, video_file_id, "bot bloklangan"
+            except Exception as error:
+                if "VOICE_MESSAGES_FORBIDDEN" in str(error):
+                    # Xabar bor, lekin nishon chat ovozli xabarni qabul qilmaydi
+                    voice_blocked = True
+                misses += 1
+                if hits and misses >= self.miss_limit:
+                    break
+                await self._pause()
+                continue
+
+            hits += 1
+            misses = 0
+
+            # Eng oxirgisi to'g'ri javob (nomzod qayta yuborgan bo'lishi mumkin)
+            if message.voice and not voice_file_id:
+                voice_file_id = message.voice.file_id
+            elif message.video_note and not video_file_id:
+                video_file_id = message.video_note.file_id
+            elif message.video and not video_file_id:
+                video_file_id = message.video.file_id
+
+            try:
+                await self.bot.delete_message(self.target, message.message_id)
+            except Exception:
+                pass
+
+            if voice_file_id and video_file_id:
+                return voice_file_id, video_file_id, f"topildi ({hits} xabar)"
+            await self._pause()
+
+        if voice_blocked and not voice_file_id:
+            return voice_file_id, video_file_id, "ovoz bloklangan (adminda cheklov)"
+        if not hits:
+            return None, None, "chat xabarlari topilmadi"
+        return voice_file_id, video_file_id, f"qisman ({hits} xabar)"
 
 
 def flush_to_sheet(worksheet, voice_col: int, video_col: int, updates: list, dry_run: bool):
@@ -121,112 +151,29 @@ def flush_to_sheet(worksheet, voice_col: int, video_col: int, updates: list, dry
     updates.clear()
 
 
-async def probe(bot: Bot, target_chat_id: int, source_chat_id: int):
-    """Chatdagi xabar ID lari qaysi oraliqda ekanini aniqlaydi."""
-    logger.info(f"Probe: manba {source_chat_id} -> nishon {target_chat_id}")
-
-    # 1) Chatdagi joriy hisoblagichni bilish uchun ovozsiz xabar yuborib, darhol o'chiramiz
-    marker = await bot.send_message(source_chat_id, ".", disable_notification=True)
-    current_id = marker.message_id
-    await bot.delete_message(source_chat_id, current_id)
-    logger.info(f"  joriy message_id: {current_id}")
-
-    # 2) Shu ID atrofidagi xabarlarni forward qilib ko'ramiz
-    candidates = [current_id - offset for offset in (1, 2, 3, 5, 10, 20, 40, 80, 160)]
-    candidates = [c for c in candidates if c > 0]
-    for message_id in candidates:
-        try:
-            message = await bot.forward_message(
-                chat_id=target_chat_id,
-                from_chat_id=source_chat_id,
-                message_id=message_id,
-                disable_notification=True,
-            )
-            logger.info(f"  id={message_id}: OK -> {message.content_type}")
-            try:
-                await bot.delete_message(target_chat_id, message.message_id)
-            except Exception as error:
-                logger.info(f"      nusxa o'chirilmadi: {str(error)[:60]}")
-        except Exception as error:
-            logger.info(f"  id={message_id}: {type(error).__name__} {str(error)[:80]}")
-        await _sleep()
-
-
-async def scan_back(bot: Bot, target_chat_id: int, source_chat_id: int, window: int):
-    """Chatning oxirgi xabaridan orqaga qarab ovoz/video izlaydi va statistika beradi."""
-    marker = await bot.send_message(source_chat_id, ".", disable_notification=True)
-    anchor = marker.message_id
-    await bot.delete_message(source_chat_id, anchor)
-    logger.info(f"anchor={anchor}, {window} ta ID orqaga tekshiriladi")
-
-    hits = 0
-    types = {}
-    voice_at = video_at = None
-    for step in range(1, window + 1):
-        message_id = anchor - step
-        if message_id <= 0:
-            break
-        try:
-            message = await bot.forward_message(
-                chat_id=target_chat_id,
-                from_chat_id=source_chat_id,
-                message_id=message_id,
-                disable_notification=True,
-            )
-        except TelegramRetryAfter as error:
-            await asyncio.sleep(error.retry_after + 1)
-            continue
-        except Exception as error:
-            text = str(error)
-            if "VOICE_MESSAGES_FORBIDDEN" in text:
-                # Xabar bor, lekin nishon chat ovozli xabarlarni qabul qilmaydi
-                logger.info(f"  OVOZ bor, lekin bloklangan: anchor-{step} (id={message_id})")
-                if voice_at is None:
-                    voice_at = step
-            elif "message to forward not found" not in text.lower():
-                logger.info(f"  [xato] anchor-{step}: {text[:90]}")
-            await _sleep()
-            continue
-
-        hits += 1
-        types[message.content_type] = types.get(message.content_type, 0) + 1
-        if message.voice and voice_at is None:
-            voice_at = step
-            logger.info(f"  OVOZ topildi: anchor-{step} (id={message_id})")
-        if message.video_note and video_at is None:
-            video_at = step
-            logger.info(f"  VIDEO topildi: anchor-{step} (id={message_id})")
-
-        try:
-            await bot.delete_message(target_chat_id, message.message_id)
-        except Exception:
-            pass
-        if voice_at and video_at:
-            break
-        await _sleep()
-
-    logger.info(f"topilgan xabarlar: {hits} ta, turlari: {types}")
-    logger.info(f"ovoz: {voice_at}, video: {video_at} (anchordan necha ID orqada)")
+async def probe(bot: Bot, target_chat_id: int, source_chat_id: int, window: int, delay: float):
+    """Bitta chatni tekshirib, natijani ko'rsatadi (sozlashni sinash uchun)."""
+    scanner = Scanner(bot, target_chat_id, window, DEFAULT_MISS_LIMIT, delay)
+    voice_file_id, video_file_id, status = await scanner.scan(source_chat_id)
+    logger.info(f"ovoz: {'✔' if voice_file_id else '—'} video: {'✔' if video_file_id else '—'} ({status})")
 
 
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", type=int, required=True, help="forward qilinadigan admin chat ID si")
     parser.add_argument("--limit", type=int, default=0, help="nechta arizani tekshirish (0 = hammasi)")
-    parser.add_argument("--dry-run", action="store_true", help="Sheets'ga yozmasdan sinab ko'rish")
+    parser.add_argument("--dry-run", action="store_true", help="Sheets'ga yozmasdan sinash")
     parser.add_argument("--newest-first", action="store_true", help="oxirgi arizalardan boshlash")
-    parser.add_argument("--debug", action="store_true", help="Telegram xatolarini ko'rsatish")
-    parser.add_argument("--probe", type=int, default=0, help="shu chat ID sida xabar ID oralig'ini tekshirish")
-    parser.add_argument("--window", type=int, default=0, help="probe bilan: oxirgi xabardan necha ID orqaga qidirish")
+    parser.add_argument("--probe", type=int, default=0, help="faqat shu chat ID sini tekshirish")
+    parser.add_argument("--window", type=int, default=DEFAULT_WINDOW)
+    parser.add_argument("--miss-limit", type=int, default=DEFAULT_MISS_LIMIT)
+    parser.add_argument("--delay", type=float, default=DEFAULT_DELAY)
     args = parser.parse_args()
 
     if args.probe:
         bot = Bot(token=BOT_TOKEN)
         try:
-            if args.window:
-                await scan_back(bot, args.target, args.probe, args.window)
-            else:
-                await probe(bot, args.target, args.probe)
+            await probe(bot, args.target, args.probe, args.window, args.delay)
         finally:
             await bot.session.close()
         return
@@ -252,20 +199,23 @@ async def main():
     if args.limit:
         todo = todo[:args.limit]
 
-    logger.info(f"Tekshiriladi: {len(todo)} ta ariza (jami {len(applications)})")
+    logger.info(f"Tekshiriladi: {len(todo)} ta ariza (jami {len(applications)}), window={args.window}")
 
     bot = Bot(token=BOT_TOKEN)
+    scanner = Scanner(bot, args.target, args.window, args.miss_limit, args.delay)
     updates = []
     stats = {"voice": 0, "video": 0, "both": 0, "none": 0}
 
     try:
         for number, app in enumerate(todo, start=1):
             user_id = int(str(app["TelegramID"]).strip())
-            name = (app.get("Ism Familya") or "?")[:25]
+            name = (app.get("Ism Familya") or "?")[:24]
 
-            voice_file_id, video_file_id, status = await scan_chat(
-                bot, args.target, user_id, debug=args.debug
-            )
+            try:
+                voice_file_id, video_file_id, status = await scanner.scan(user_id)
+            except Exception as error:
+                voice_file_id = video_file_id = None
+                status = f"xato: {str(error)[:50]}"
 
             if voice_file_id:
                 stats["voice"] += 1
@@ -277,8 +227,8 @@ async def main():
                 stats["none"] += 1
 
             logger.info(
-                f"{number}/{len(todo)} {name:<25} ovoz:{'✔' if voice_file_id else '—'} "
-                f"video:{'✔' if video_file_id else '—'} ({status})"
+                f"{number}/{len(todo)} {name:<24} ovoz:{'✔' if voice_file_id else '—'} "
+                f"video:{'✔' if video_file_id else '—'}  {status}"
             )
 
             if voice_file_id or video_file_id:
@@ -291,8 +241,8 @@ async def main():
         await bot.session.close()
 
     logger.info(
-        f"\nNatija: ovoz {stats['voice']} ta, video {stats['video']} ta, "
-        f"ikkalasi {stats['both']} ta, hech nima topilmadi {stats['none']} ta"
+        f"NATIJA: ovoz {stats['voice']} ta, video {stats['video']} ta, "
+        f"ikkalasi {stats['both']} ta, topilmadi {stats['none']} ta"
         + (" (dry-run: Sheets'ga yozilmadi)" if args.dry_run else "")
     )
 
