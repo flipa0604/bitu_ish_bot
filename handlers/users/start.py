@@ -22,6 +22,7 @@ from keyboards.inline.start import (
 
 from states.start import UserRegistration
 from aiogram.fsm.context import FSMContext
+from utils.applications import escape_html, send_application_media, send_long_message
 
 
 router = Router()
@@ -29,47 +30,52 @@ logger = logging.getLogger(__name__)
 
 
 async def notify_admins(bot, user_data: dict, from_user):
-    """Yangi ariza haqida barcha adminlarga to'liq ma'lumot yuborish."""
+    """Yangi ariza haqida adminlarga to'liq ma'lumot + ovozli xabar va videoni yuborish."""
     username = f"@{from_user.username}" if from_user.username else "—"
     text = (
         f"🆕 <b>Yangi ariza topshirildi!</b>\n\n"
-        f"👤 <b>Ism:</b> {user_data.get('full_name', '—')}\n"
-        f"📞 <b>Telefon:</b> {user_data.get('phone_number', '—')}\n"
-        f"🏠 <b>Manzil:</b> {user_data.get('address', '—')}\n"
-        f"🎂 <b>Tug'ilgan sana:</b> {user_data.get('birth_date', '—')}\n"
-        f"🎓 <b>Ta'lim:</b> {user_data.get('education', '—')}\n"
-        f"💼 <b>Ish tajriba:</b> {user_data.get('work_experience', '—')}\n"
-        f"💍 <b>Oilaviy holat:</b> {user_data.get('marital_status', '—')}\n"
-        f"🎯 <b>Lavozim:</b> {user_data.get('position', '—')}\n"
-        f"🇬🇧 <b>Ingliz tili:</b> {user_data.get('english_level', '—')}\n"
-        f"🇷🇺 <b>Rus tili:</b> {user_data.get('russian_level', '—')}\n"
-        f"💰 <b>Kutilayotgan maosh:</b> {user_data.get('salary_expectation', '—')}\n"
-        f"📋 <b>Tavsiyachi:</b> {user_data.get('reference_check', '—')}\n"
-        f"⏰ <b>Ish muddati:</b> {user_data.get('work_duration', '—')}\n"
-        f"🕐 <b>Qo'shimcha ish:</b> {user_data.get('overtime_work', '—')}\n"
-        f"🎯 <b>Ish sababi:</b> {user_data.get('work_reasons', '—')}\n"
-        f"🏥 <b>Sog'liq:</b> {user_data.get('health_status', '—')}\n"
-        f"🐢 <b>Kechikish sababi:</b> {user_data.get('question_some_workers_late_to_work', '—')}\n"
-        f"🚨 <b>O'g'irlik sababi:</b> {user_data.get('question_what_workers_can_thief_answer', '—')}\n"
-        f"⚖️ <b>Ish sifati sababi:</b> {user_data.get('question_what_workers_good_works_some_bad', '—')}\n"
-        f"💸 <b>Oldingi maosh:</b> {user_data.get('question_previous_salary', '—')}\n"
-        f"📚 <b>Kurslar:</b> {user_data.get('courses_completed', '—')}\n\n"
-        f"👥 <b>Username:</b> {username}\n"
-        f"🆔 <b>Telegram ID:</b> <code>{user_data.get('telegram_id', '—')}</code>"
+        f"👤 <b>Ism:</b> {escape_html(user_data.get('full_name'))}\n"
+        f"📞 <b>Telefon:</b> {escape_html(user_data.get('phone_number'))}\n"
+        f"🏠 <b>Manzil:</b> {escape_html(user_data.get('address'))}\n"
+        f"🎂 <b>Tug'ilgan sana:</b> {escape_html(user_data.get('birth_date'))}\n"
+        f"🎓 <b>Ta'lim:</b> {escape_html(user_data.get('education'))}\n"
+        f"💼 <b>Ish tajriba:</b> {escape_html(user_data.get('work_experience'))}\n"
+        f"💍 <b>Oilaviy holat:</b> {escape_html(user_data.get('marital_status'))}\n"
+        f"🎯 <b>Lavozim:</b> {escape_html(user_data.get('position'))}\n"
+        f"🇬🇧 <b>Ingliz tili:</b> {escape_html(user_data.get('english_level'))}\n"
+        f"🇷🇺 <b>Rus tili:</b> {escape_html(user_data.get('russian_level'))}\n"
+        f"💰 <b>Kutilayotgan maosh:</b> {escape_html(user_data.get('salary_expectation'))}\n"
+        f"📋 <b>Tavsiyachi:</b> {escape_html(user_data.get('reference_check'))}\n"
+        f"⏰ <b>Ish muddati:</b> {escape_html(user_data.get('work_duration'))}\n"
+        f"🕐 <b>Qo'shimcha ish:</b> {escape_html(user_data.get('overtime_work'))}\n"
+        f"🎯 <b>Ish sababi:</b> {escape_html(user_data.get('work_reasons'))}\n"
+        f"🏥 <b>Sog'liq:</b> {escape_html(user_data.get('health_status'))}\n"
+        f"🐢 <b>Kechikish sababi:</b> {escape_html(user_data.get('question_some_workers_late_to_work'))}\n"
+        f"🚨 <b>O'g'irlik sababi:</b> {escape_html(user_data.get('question_what_workers_can_thief_answer'))}\n"
+        f"⚖️ <b>Ish sifati sababi:</b> {escape_html(user_data.get('question_what_workers_good_works_some_bad'))}\n"
+        f"💸 <b>Oldingi maosh:</b> {escape_html(user_data.get('question_previous_salary'))}\n"
+        f"📚 <b>Kurslar:</b> {escape_html(user_data.get('courses_completed'))}\n\n"
+        f"👥 <b>Username:</b> {escape_html(username)}\n"
+        f"🆔 <b>Telegram ID:</b> <code>{escape_html(user_data.get('telegram_id'))}</code>"
     )
 
-    voice_url = user_data.get('about_yourself')
-    video_url = user_data.get('personal_qualities')
+    # Ovozli xabar va yumaloq video adminlarga havola emas, o'zi bo'lib boradi
+    voice_file_id = user_data.get('voice_file_id')
+    video_note_file_id = user_data.get('video_note_file_id')
 
     for admin_id in ADMINS:
         try:
-            await bot.send_message(int(admin_id), text)
-            if voice_url:
-                await bot.send_message(int(admin_id), f"🎙 <b>Ovozli xabar (qarindoshlar):</b>\n{voice_url}")
-            if video_url:
-                await bot.send_message(int(admin_id), f"📹 <b>Video xabar (shaxsiy sifatlar):</b>\n{video_url}")
+            await send_long_message(bot, int(admin_id), text)
+            await send_application_media(
+                bot,
+                int(admin_id),
+                voice_file_id=voice_file_id,
+                video_file_id=video_note_file_id,
+                note_if_missing=False,
+            )
         except Exception as e:
             logger.error(f"Admin {admin_id} ga xabar yuborilmadi: {e}")
+
 
 @router.callback_query(F.data == "back_to_departments")
 async def back_to_departments(callback: types.CallbackQuery):
@@ -478,12 +484,9 @@ async def handle_personal_qualities(message: types.Message, state: FSMContext):
     
     
     
-    # Video URL-ni saqlash
-    video_url = message.video_note.file_id
-    file = await message.bot.get_file(video_url)
-    download_url = f"https://api.telegram.org/file/bot{message.bot.token}/{file.file_path}"
-
-    await state.update_data(personal_qualities=download_url)
+    # Videoning file_id si saqlanadi — bot uni adminlarga istalgan vaqtda
+    # qayta yubora oladi (havola 1 soatdan keyin eskirardi)
+    await state.update_data(video_note_file_id=message.video_note.file_id)
     # Kurslar haqida so'rash
     await state.set_state(UserRegistration.courses_completed)
     await message.answer(
@@ -565,11 +568,8 @@ async def handle_about_yourself(message: types.Message, state: FSMContext):
         await message.answer("Iltimos, ovozli xabar yuboring.")
         return
     await message.bot.send_chat_action(message.chat.id, "typing")
-    # O'zingiz haqida voice URL-ni saqlash 
-    voice_url = message.voice.file_id
-    file = await message.bot.get_file(voice_url)
-    download_url = f"https://api.telegram.org/file/bot{message.bot.token}/{file.file_path}"
-    await state.update_data(about_yourself=download_url)
+    # Ovozli xabarning file_id si saqlanadi
+    await state.update_data(voice_file_id=message.voice.file_id)
 
     # Shaxsiy sifatlar haqida ma'lumot berish
     

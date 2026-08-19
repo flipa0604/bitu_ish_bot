@@ -6,6 +6,7 @@ from aiogram.client.session.middlewares.request_logging import logger
 from aiogram.enums import ChatType
 from loader import db
 from data.config import SHEET_ID, SHEET_TAB_NAME, SERVICE_ACCOUNT_FILE
+from data.database import HEADERS, ensure_headers
 
 
 def setup_handlers(dispatcher: Dispatcher) -> None:
@@ -60,16 +61,8 @@ async def database_connected():
             logger.error("Sheet ID not found")
             return
 
-        # Headers - to'g'ri tartibda
-        headers = [
-            "Ism Familya", "Telefon", "Manzil", "Tug'ilgan sana", "Ma'lumoti",
-            "Ish tajriba", "Oilaviy Holat", "Lavozimi", "Rus tilini bilishi",
-            "Ingliz tilini bilishi", "Kutayotgan maosh", "Aloqa ma'lumoti",
-            "Ish muddati", "Qo'shimcha ish", "Ish sabablari", "Sog'liq holati",
-            "Kechikish sababi", "O'g'irlik sababi", "Ish sifati sababi",
-            "Oldingi maosh", "O'qigan kurslari",
-            "Qabul qilindi", "TelegramID"
-        ]
+        # Headers - data/database.py dagi markaziy ro'yxatdan olinadi
+        headers = list(HEADERS)
 
         try:
             # Avval sheet mavjudligini tekshirish
@@ -81,6 +74,10 @@ async def database_connected():
                     sheet_exists = True
                     logger.info(f"Sheet '{SHEET_TAB_NAME}' already exists")
                     break
+
+            if sheet_exists:
+                # Eski sheetda yangi ustunlar (Ovozli xabar / Video xabar) bo'lmasa qo'shiladi
+                ensure_headers()
             
             if not sheet_exists:
                 # Yangi sheet yaratish
@@ -171,8 +168,8 @@ async def database_connected():
                                 'sheetId': sheet_id,
                                 'startRowIndex': 1,
                                 'endRowIndex': 1000,
-                                'startColumnIndex': len(headers) - 2,  # "Qabul qilindi" kolonnasi
-                                'endColumnIndex': len(headers) - 1
+                                'startColumnIndex': headers.index("Qabul qilindi"),
+                                'endColumnIndex': headers.index("Qabul qilindi") + 1
                             },
                             'cell': {
                                 'dataValidation': {
