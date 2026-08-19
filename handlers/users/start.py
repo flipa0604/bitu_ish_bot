@@ -102,23 +102,27 @@ async def do_start(message: types.Message):
     """
 
     telegram_id = message.from_user.id
-    full_name = message.from_user.full_name
-    username = message.from_user.username
-    user = None
     video_url = "https://t.me/mycloud777/2"
-    if get_user_found_by_telegram_id(telegram_id):
+    already_applied = get_user_found_by_telegram_id(telegram_id)
+
+    # Ba'zi foydalanuvchilar maxfiylik sozlamasida ovozli/video xabarlarni yopib
+    # qo'ygan (VOICE_MESSAGES_FORBIDDEN) — bunda tanishtiruv videosi yuborilmaydi,
+    # lekin ariza jarayoni to'xtab qolmasligi kerak
+    try:
         await message.bot.send_chat_action(message.chat.id, "upload_video")
-        await message.answer_video_note(
-            video_note=video_url
-        )
-        await message.bot.send_chat_action(message.chat.id, "typing")
+        if already_applied:
+            await message.answer_video_note(video_note=video_url)
+        else:
+            await message.answer_video(video=video_url)
+    except Exception as error:
+        logger.warning(f"Tanishtiruv videosi yuborilmadi ({telegram_id}): {error}")
+
+    await message.bot.send_chat_action(message.chat.id, "typing")
+    if already_applied:
         await message.answer(
-            text = "Assalomu alaykum, siz allaqachon botimizga hujjat topshirgan ekansiz! \n\n Albatta siz bilan bog'lanamiz😊",
+            text="Assalomu alaykum, siz allaqachon botimizga hujjat topshirgan ekansiz! \n\n Albatta siz bilan bog'lanamiz😊",
         )
     else:
-        await message.bot.send_chat_action(message.chat.id, "upload_video") 
-        await message.answer_video(video=video_url)
-        await message.bot.send_chat_action(message.chat.id, "typing")
         await message.answer(
             text="Assalomu alaykum qaysi lavozimda ishlamoqchisiz?",
             reply_markup=department_selection_keyboard()
@@ -468,11 +472,15 @@ async def handle_work_reasons(message: types.Message, state: FSMContext):
     
     # Shaxsiy sifatlarni so'rash
     video_url = "https://t.me/mycloud777/3"
+    question = ("15/23. O'zingizni qanday shaxsiy sifatlaringiz bor deb o'ylaysiz? "
+                "(masalan: Javobgarlik, Jamoada ishlash) \n\n⚠️ Video formatda!:")
     await state.set_state(UserRegistration.personal_qualities)
-    await message.answer_video(
-        video=video_url,
-        caption="15/23. O'zingizni qanday shaxsiy sifatlaringiz bor deb o'ylaysiz? (masalan: Javobgarlik, Jamoada ishlash) \n\n⚠️ Video formatda!:"
-    )
+    try:
+        await message.answer_video(video=video_url, caption=question)
+    except Exception as error:
+        # Video yuborilmasa ham savol nomzodga yetib borishi kerak
+        logger.warning(f"Namuna video yuborilmadi: {error}")
+        await message.answer(question)
 
 @router.message(UserRegistration.personal_qualities)
 async def handle_personal_qualities(message: types.Message, state: FSMContext):
@@ -557,7 +565,10 @@ async def handle_good_bad_answer(message: types.Message, state: FSMContext):
     # O'zingiz haqida ma'lumot berish
 
     await state.set_state(UserRegistration.about_yourself)
-    await message.answer_audio(audio="https://t.me/mycloud777/4")
+    try:
+        await message.answer_audio(audio="https://t.me/mycloud777/4")
+    except Exception as error:
+        logger.warning(f"Namuna audio yuborilmadi: {error}")
     await message.answer(
         "20/23. Qarindoshlaringiz haqida qisqacha ma'lumot bering (🎤Ovoz ko'rinishida):"
     )
