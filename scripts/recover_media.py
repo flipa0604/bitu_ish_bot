@@ -121,6 +121,37 @@ def flush_to_sheet(worksheet, voice_col: int, video_col: int, updates: list, dry
     updates.clear()
 
 
+async def probe(bot: Bot, target_chat_id: int, source_chat_id: int):
+    """Chatdagi xabar ID lari qaysi oraliqda ekanini aniqlaydi."""
+    logger.info(f"Probe: manba {source_chat_id} -> nishon {target_chat_id}")
+
+    # 1) Chatdagi joriy hisoblagichni bilish uchun ovozsiz xabar yuborib, darhol o'chiramiz
+    marker = await bot.send_message(source_chat_id, ".", disable_notification=True)
+    current_id = marker.message_id
+    await bot.delete_message(source_chat_id, current_id)
+    logger.info(f"  joriy message_id: {current_id}")
+
+    # 2) Shu ID atrofidagi xabarlarni forward qilib ko'ramiz
+    candidates = [current_id - offset for offset in (1, 2, 3, 5, 10, 20, 40, 80, 160)]
+    candidates = [c for c in candidates if c > 0]
+    for message_id in candidates:
+        try:
+            message = await bot.forward_message(
+                chat_id=target_chat_id,
+                from_chat_id=source_chat_id,
+                message_id=message_id,
+                disable_notification=True,
+            )
+            logger.info(f"  id={message_id}: OK -> {message.content_type}")
+            try:
+                await bot.delete_message(target_chat_id, message.message_id)
+            except Exception as error:
+                logger.info(f"      nusxa o'chirilmadi: {str(error)[:60]}")
+        except Exception as error:
+            logger.info(f"  id={message_id}: {type(error).__name__} {str(error)[:80]}")
+        await _sleep()
+
+
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", type=int, required=True, help="forward qilinadigan admin chat ID si")
@@ -128,7 +159,16 @@ async def main():
     parser.add_argument("--dry-run", action="store_true", help="Sheets'ga yozmasdan sinab ko'rish")
     parser.add_argument("--newest-first", action="store_true", help="oxirgi arizalardan boshlash")
     parser.add_argument("--debug", action="store_true", help="Telegram xatolarini ko'rsatish")
+    parser.add_argument("--probe", type=int, default=0, help="shu chat ID sida xabar ID oralig'ini tekshirish")
     args = parser.parse_args()
+
+    if args.probe:
+        bot = Bot(token=BOT_TOKEN)
+        try:
+            await probe(bot, args.target, args.probe)
+        finally:
+            await bot.session.close()
+        return
 
     worksheet = get_worksheet(SHEET_TAB_NAME)
     if not worksheet:
