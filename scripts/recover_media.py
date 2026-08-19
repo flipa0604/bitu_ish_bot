@@ -46,12 +46,13 @@ async def _sleep():
     await asyncio.sleep(REQUEST_DELAY)
 
 
-async def scan_chat(bot: Bot, target_chat_id: int, user_id: int):
+async def scan_chat(bot: Bot, target_chat_id: int, user_id: int, debug: bool = False):
     """Nomzod chatidan oxirgi ovozli xabar va videoning file_id sini topadi."""
     voice_file_id = None
     video_file_id = None
     hits = 0
     misses_in_a_row = 0
+    seen_errors = set()
 
     for message_id in range(1, MAX_MESSAGE_ID + 1):
         try:
@@ -68,6 +69,9 @@ async def scan_chat(bot: Bot, target_chat_id: int, user_id: int):
             return voice_file_id, video_file_id, "bot bloklangan"
         except TelegramBadRequest as error:
             text = str(error).lower()
+            if debug and text not in seen_errors:
+                seen_errors.add(text)
+                logger.info(f"      [debug] id={message_id}: {str(error)[:110]}")
             if "chat not found" in text:
                 return voice_file_id, video_file_id, "chat topilmadi"
             misses_in_a_row += 1
@@ -123,6 +127,7 @@ async def main():
     parser.add_argument("--limit", type=int, default=0, help="nechta arizani tekshirish (0 = hammasi)")
     parser.add_argument("--dry-run", action="store_true", help="Sheets'ga yozmasdan sinab ko'rish")
     parser.add_argument("--newest-first", action="store_true", help="oxirgi arizalardan boshlash")
+    parser.add_argument("--debug", action="store_true", help="Telegram xatolarini ko'rsatish")
     args = parser.parse_args()
 
     worksheet = get_worksheet(SHEET_TAB_NAME)
@@ -157,7 +162,9 @@ async def main():
             user_id = int(str(app["TelegramID"]).strip())
             name = (app.get("Ism Familya") or "?")[:25]
 
-            voice_file_id, video_file_id, status = await scan_chat(bot, args.target, user_id)
+            voice_file_id, video_file_id, status = await scan_chat(
+                bot, args.target, user_id, debug=args.debug
+            )
 
             if voice_file_id:
                 stats["voice"] += 1
