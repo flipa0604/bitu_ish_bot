@@ -152,6 +152,55 @@ async def probe(bot: Bot, target_chat_id: int, source_chat_id: int):
         await _sleep()
 
 
+async def scan_back(bot: Bot, target_chat_id: int, source_chat_id: int, window: int):
+    """Chatning oxirgi xabaridan orqaga qarab ovoz/video izlaydi va statistika beradi."""
+    marker = await bot.send_message(source_chat_id, ".", disable_notification=True)
+    anchor = marker.message_id
+    await bot.delete_message(source_chat_id, anchor)
+    logger.info(f"anchor={anchor}, {window} ta ID orqaga tekshiriladi")
+
+    hits = 0
+    types = {}
+    voice_at = video_at = None
+    for step in range(1, window + 1):
+        message_id = anchor - step
+        if message_id <= 0:
+            break
+        try:
+            message = await bot.forward_message(
+                chat_id=target_chat_id,
+                from_chat_id=source_chat_id,
+                message_id=message_id,
+                disable_notification=True,
+            )
+        except TelegramRetryAfter as error:
+            await asyncio.sleep(error.retry_after + 1)
+            continue
+        except Exception:
+            await _sleep()
+            continue
+
+        hits += 1
+        types[message.content_type] = types.get(message.content_type, 0) + 1
+        if message.voice and voice_at is None:
+            voice_at = step
+            logger.info(f"  OVOZ topildi: anchor-{step} (id={message_id})")
+        if message.video_note and video_at is None:
+            video_at = step
+            logger.info(f"  VIDEO topildi: anchor-{step} (id={message_id})")
+
+        try:
+            await bot.delete_message(target_chat_id, message.message_id)
+        except Exception:
+            pass
+        if voice_at and video_at:
+            break
+        await _sleep()
+
+    logger.info(f"topilgan xabarlar: {hits} ta, turlari: {types}")
+    logger.info(f"ovoz: {voice_at}, video: {video_at} (anchordan necha ID orqada)")
+
+
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", type=int, required=True, help="forward qilinadigan admin chat ID si")
@@ -160,12 +209,16 @@ async def main():
     parser.add_argument("--newest-first", action="store_true", help="oxirgi arizalardan boshlash")
     parser.add_argument("--debug", action="store_true", help="Telegram xatolarini ko'rsatish")
     parser.add_argument("--probe", type=int, default=0, help="shu chat ID sida xabar ID oralig'ini tekshirish")
+    parser.add_argument("--window", type=int, default=0, help="probe bilan: oxirgi xabardan necha ID orqaga qidirish")
     args = parser.parse_args()
 
     if args.probe:
         bot = Bot(token=BOT_TOKEN)
         try:
-            await probe(bot, args.target, args.probe)
+            if args.window:
+                await scan_back(bot, args.target, args.probe, args.window)
+            else:
+                await probe(bot, args.target, args.probe)
         finally:
             await bot.session.close()
         return
